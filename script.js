@@ -3,39 +3,37 @@ const ctx = canvas.getContext("2d");
 
 let gameStarted = false;
 
-// Load images
-const img_idle = new Image(); img_idle.src = "images/knight_idle.png";
-const img_walk = new Image(); img_walk.src = "images/knight_walk.gif";
-const img_attack = new Image(); img_attack.src = "images/knight_attack.png";
-const img_special = new Image(); img_special.src = "images/knight_special.gif"; // ← updated to GIF
+// Load images (all in same folder)
+const img_idle = new Image(); img_idle.src = "knight_idle.png";
+const img_walk = new Image(); img_walk.src = "knight_walk.gif";
+const img_attack = new Image(); img_attack.src = "knight_attack.png";
+const img_special = new Image(); img_special.src = "knight_special.gif";
 
-// Controls state
+// Keyboard state
 const keys = {};
 document.addEventListener("keydown", e => {
     keys[e.key] = true;
-    if (e.key === "Enter") gameStarted = true;
+    if (!gameStarted && e.key === "Enter") gameStarted = true;
 });
 document.addEventListener("keyup", e => keys[e.key] = false);
 
 class Player {
-    constructor(x, tintColor, controls) {
+    constructor(x, color, controls) {
         this.x = x;
         this.y = 360;
         this.width = 80;
         this.height = 80;
-
         this.vx = 0;
         this.hp = 100;
-
         this.state = "idle"; // idle, walk, attack, special
-        this.tint = tintColor;
+        this.color = color;
         this.controls = controls;
-
         this.attackCooldown = 0;
         this.specialCooldown = 0;
     }
 
     update() {
+        // Cooldowns
         if (this.attackCooldown > 0) this.attackCooldown--;
         if (this.specialCooldown > 0) this.specialCooldown--;
 
@@ -43,10 +41,9 @@ class Player {
         if (keys[this.controls.left]) this.vx = -4;
         else if (keys[this.controls.right]) this.vx = 4;
         else this.vx = 0;
-
         this.x += this.vx;
 
-        // Action states
+        // State logic
         if (keys[this.controls.attack] && this.attackCooldown === 0) {
             this.state = "attack";
             this.attackCooldown = 40;
@@ -62,58 +59,59 @@ class Player {
         }
     }
 
+    getHitbox() {
+        return { x: this.x, y: this.y, width: this.width, height: this.height };
+    }
+
     getAttackHitbox() {
-        return {
-            x: this.x + (this.tint === "blue" ? -20 : 60),
-            y: this.y + 20,
-            w: 40,
-            h: 30
-        };
+        const offset = this.color === "blue" ? -20 : 60;
+        return { x: this.x + offset, y: this.y + 20, width: 40, height: 30 };
     }
 
     draw() {
         let img;
-        if (this.state === "idle") img = img_idle;
-        if (this.state === "walk") img = img_walk;
-        if (this.state === "attack") img = img_attack;
-        if (this.state === "special") img = img_special;
+        switch(this.state){
+            case "idle": img = img_idle; break;
+            case "walk": img = img_walk; break;
+            case "attack": img = img_attack; break;
+            case "special": img = img_special; break;
+        }
 
         ctx.save();
-        if (this.tint === "blue") ctx.filter = "hue-rotate(180deg)";
+        if (this.color === "blue") ctx.filter = "hue-rotate(180deg)";
         ctx.drawImage(img, this.x, this.y, this.width, this.height);
         ctx.restore();
     }
 }
 
-const p1 = new Player(150, "none", {
-    left: "a",
-    right: "d",
-    attack: "s",
-    special: "q"
-});
+// Create players
+const player1 = new Player(150, "white", { left: "a", right: "d", attack: "s", special: "q" });
+const player2 = new Player(650, "blue", { left: "ArrowLeft", right: "ArrowRight", attack: "ArrowDown", special: "/" });
 
-const p2 = new Player(650, "blue", {
-    left: "ArrowLeft",
-    right: "ArrowRight",
-    attack: "ArrowDown",
-    special: "/"
-});
-
+// Collision detection
 function rectCollide(a, b) {
     return a.x < b.x + b.width &&
-           a.x + a.w > b.x &&
+           a.x + a.width > b.x &&
            a.y < b.y + b.height &&
-           a.y + a.h > b.y;
+           a.y + a.height > b.y;
 }
 
+// Draw HP bars
 function drawHP() {
+    // Player 1
     ctx.fillStyle = "red";
-    ctx.fillRect(20, 20, p1.hp * 2, 20);
+    ctx.fillRect(20, 20, player1.hp * 2, 20);
+    ctx.strokeStyle = "white";
+    ctx.strokeRect(20, 20, 200, 20);
 
+    // Player 2
     ctx.fillStyle = "blue";
-    ctx.fillRect(canvas.width - 20 - p2.hp * 2, 20, p2.hp * 2, 20);
+    ctx.fillRect(canvas.width - 20 - player2.hp * 2, 20, player2.hp * 2, 20);
+    ctx.strokeStyle = "white";
+    ctx.strokeRect(canvas.width - 220, 20, 200, 20);
 }
 
+// Start menu
 function drawStartMenu() {
     ctx.fillStyle = "white";
     ctx.font = "40px Arial";
@@ -130,42 +128,39 @@ function gameLoop() {
         return;
     }
 
-    p1.update();
-    p2.update();
+    // Update players
+    player1.update();
+    player2.update();
 
-    // Hit detection
-    if (p1.state === "attack" && p1.attackCooldown > 30) {
-        let hb = p1.getAttackHitbox();
-        let hurt = { x: p2.x, y: p2.y, width: 80, height: 80 };
-
-        if (rectCollide(hb, hurt)) {
-            p2.hp -= 1;
-            p2.x += 5;
+    // Attack hitboxes
+    [player1, player2].forEach(attacker => {
+        const defender = attacker === player1 ? player2 : player1;
+        const hb = attacker.getAttackHitbox();
+        if ((attacker.state === "attack" && attacker.attackCooldown > 30) ||
+            (attacker.state === "special" && attacker.specialCooldown > 60)) {
+            if (rectCollide(hb, defender.getHitbox())) {
+                defender.hp -= attacker.state === "attack" ? 1 : 2;
+                defender.x += attacker.color === "white" ? 5 : -5; // knockback
+                if (defender.hp < 0) defender.hp = 0;
+            }
         }
-    }
+    });
 
-    if (p2.state === "attack" && p2.attackCooldown > 30) {
-        let hb = p2.getAttackHitbox();
-        let hurt = { x: p1.x, y: p1.y, width: 80, height: 80 };
+    // Draw players
+    player1.draw();
+    player2.draw();
 
-        if (rectCollide(hb, hurt)) {
-            p1.hp -= 1;
-            p1.x -= 5;
-        }
-    }
-
-    p1.draw();
-    p2.draw();
+    // Draw HP bars
     drawHP();
 
-    // KO
-    if (p1.hp <= 0 || p2.hp <= 0) {
+    // Win condition
+    if (player1.hp <= 0 || player2.hp <= 0) {
         ctx.fillStyle = "yellow";
         ctx.font = "50px Arial";
         ctx.textAlign = "center";
         ctx.fillText(
-            p1.hp <= 0 ? "Player 2 Wins!" : "Player 1 Wins!",
-            canvas.width / 2, 200
+            player1.hp <= 0 ? "Player 2 Wins!" : "Player 1 Wins!",
+            canvas.width / 2, 250
         );
         return;
     }
